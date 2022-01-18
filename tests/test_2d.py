@@ -61,15 +61,16 @@ pdf_grid = np.sum(_pdf(X_grid, X_min)) * np.product(X_grid.max(axis=0)-X_grid.mi
 f_grid_exact = _pdf(X_grid, X_min) / pdf_grid
 #%%
 st = time()
-bkde = ekde.BKDE(q=21,
+bkde = ekde.KDE(q=5,
+                 kernel='box',
                     bounds=[
-                        (0, 'left'),
-                        (1, 'both'),
+                        # (0, 'left'),
+                        # (1, 'both'),
                         ],
                     verbose=1)
 bkde.fit(X)
 print(time()-st)
-
+print(bkde._normalization)
 #%%
 X2, Y, pdf_Y, X_grid = bounded_set(10**6, 30)
 
@@ -99,12 +100,6 @@ f_X = bkde.predict(X)
 # 10**7 -> 42 sec 
 # 10**6 -> 3.3 sec
 # ([4, 249], 11.652764262505263)
-#%%
-import sparse
-s = sparse.COO(bkde._U.T, bkde._nu)
-s = sparse.GCXS(s, compressed_axes=[0])
-
-
 
 #%%
 f_eval = bkde.predict(Y[:])

@@ -227,7 +227,9 @@ cpdef double [:] merge(int[:, :] U,
                        int[:, :] Z_diff_asc,
                        int[:, :] Z_diff_desc,
                        int q,
-                       double h):
+                       double h,
+                       str kernel,
+                       double dx):
     cdef Py_ssize_t i_U, i_Z, j, k
     
     cdef int n_U = U.shape[0]
@@ -256,6 +258,8 @@ cpdef double [:] merge(int[:, :] U,
     cdef int *target = <int *> malloc(2 * sizeof(int))
     
     cdef int *s = <int *> malloc(d * sizeof(int))
+    
+    cdef double dist_sq
     
     for i_Z in range(n_Z):
         for j in range(d):
@@ -297,7 +301,16 @@ cpdef double [:] merge(int[:, :] U,
             else:
                 # U is good for Z !
                 # here it is possible to set another type of kernel
-                f[Z_indices[i_Z]] = f[Z_indices[i_Z]] + nu[S[d-1][s[d-1]][1]]
+                if kernel == 'box':
+                    f[Z_indices[i_Z]] = f[Z_indices[i_Z]] + nu[S[d-1][s[d-1]][1]]
+                elif kernel == 'gaussian':
+                    
+                    dist_sq = 0
+                    for j in range(d):
+                        dist_sq = dist_sq + pow(Z[i_Z, j] - S[j][s[j]][0], 2)
+                    dist_sq = dist_sq * pow(dx, 2)
+                    
+                    f[Z_indices[i_Z]] = f[Z_indices[i_Z]] + nu[S[d-1][s[d-1]][1]] * exp(-dist_sq / pow(h,2) / 2)
                 # then, next U
                 trigger_search_U = next_s(S = S, 
                                           S_shape=S_shape,

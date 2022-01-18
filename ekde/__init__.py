@@ -1,2 +1,2 @@
 # -*- coding: utf-8 -*-
-from .base import BKDE
+from .base import KDE

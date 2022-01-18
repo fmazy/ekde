@@ -61,7 +61,8 @@ setup(
     install_requires=[
             'numpy>=1.19.2',
             'pandas>=1.3.5',
-            'hyperclip>=0.2.1',
+            'hyperclip>=0.2.2',
+            'scipy',
         ],
 
     long_description=open('README.md').read(),

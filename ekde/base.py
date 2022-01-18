@@ -5,21 +5,9 @@ import hyperclip.hyperfunc
 from hyperclip import Hyperplane
 from .whitening_transformer import WhiteningTransformer
 import pandas as pd
+from scipy.special import gamma, factorial2
+from scipy.stats import norm
 import time
-
-def count_diff(A):
-    n, d = A.shape
-    
-    B = np.ones_like(A)
-    
-    for i in range(n - 1)[::-1]:
-        for j in range(d):
-            if A[i,j] == A[i+1, j]:
-                if j == 0:
-                    B[i,j] = B[i+1,j] + 1
-                elif B[i, j-1] > 1:
-                    B[i,j] = B[i+1,j] + 1
-    return(B)
 
 def discretize(X, x_min, dx):
     Z = ((X - x_min) / dx).astype(int)
@@ -29,9 +17,10 @@ def compute_centers(Z, x_min, dx):
     C = x_min + Z * dx + 0.5 * dx
     return(C)
 
-class BKDE():
+class KDE():
     def __init__(self, 
                  h='scott', 
+                 kernel='box',
                  q=11, 
                  bounds=[],
                  verbose=0):
@@ -39,6 +28,7 @@ class BKDE():
             raise(ValueError("Unexpected q value. q should be an odd int."))
             
         self.h = h
+        self.kernel = kernel
         self._h = None
         self.q = q
         self.bounds = bounds
@@ -46,7 +36,7 @@ class BKDE():
     
     def fit(self, X):
         if self.verbose > 0:
-            print('BKDE fit process, X.shape=', X.shape)
+            print('KDE fit process, X.shape=', X.shape)
         # preprocessing
         if len(X.shape) == 1:
             X = X[:,None]
@@ -70,61 +60,51 @@ class BKDE():
         # BANDWIDTH SELECTION
         self._compute_bandwidth(X)
         
-        self._x_min = X.min(axis=0)
-        dx = self._h / self.q
+        self._compute_support()
         
-        Z = discretize(X, self._x_min, dx=dx).astype(np.intc)
+        self._x_min = X.min(axis=0)
+        self._dx = self._h * self._support / self.q
+        
+        Z = discretize(X, self._x_min, dx=self._dx).astype(np.intc)
         Z = pd.DataFrame(Z)
         
         U_nu = Z.groupby(by=Z.columns.tolist()).size().reset_index(name="nu")
         
         self._U = U_nu[Z.columns.tolist()].values.astype(np.intc)
         self._nu = U_nu["nu"].values.astype(np.double)
-        
-        print('U.shape=', self._U.shape)
-        
+                
         self._U_diff_asc = np.ones((self._U.shape[0], self._d), dtype=np.intc)
         ekde.ekdefunc.count_diff_asc(self._U, self._U_diff_asc)
         
         self._U_diff_desc = np.ones((self._U.shape[0], self._d), dtype=np.intc)
         ekde.ekdefunc.count_diff_desc(self._U, self._U_diff_desc)
         
-        C = compute_centers(self._U, self._x_min, dx).astype(np.double)
+        C = compute_centers(self._U, self._x_min, self._dx).astype(np.double)
         self._nu /= np.array(hyperclip.hyperfunc.volumes(A, R, C, self._h))
+        
+        self._compute_normalization()
         
         return(self)
         
     def predict(self, X):
-        st_all = time.time()
-        if self.verbose > 0:
-            print('BKDE predict process, X.shape=', X.shape)
         X = self._wt.transform(X)
         
         id_out_of_bounds = np.zeros(X.shape[0]).astype(np.bool)
         for hyp in self._bounds_hyperplanes:
             id_out_of_bounds = np.any((id_out_of_bounds, ~hyp.side(X)), axis=0)
-        st = time.time()
-        Z = discretize(X, self._x_min, dx=self._h / self.q)
-        print('discretize time', time.time()-st)
+        Z = discretize(X, self._x_min, dx=self._dx)
         # sort Z
         Z = pd.DataFrame(Z)
         Z['j'] = np.arange(Z.shape[0])
-        print('sort')
-        st = time.time()
         Z = Z.sort_values(by=[i for i in range(self._d)])
-        print('sort done in', time.time()-st)
         Z_indices = Z['j'].values.astype(np.intc)
         Z = Z[[i for i in range(self._d)]].values.astype(np.intc)
         
-        print('U.shape', self._U.shape)
-        print('Z.shape=', Z.shape)
         Z_diff_asc = np.ones((Z.shape[0], self._d), dtype=np.intc)
         ekde.ekdefunc.count_diff_asc(Z, Z_diff_asc)
         
         Z_diff_desc = np.ones((Z.shape[0], self._d), dtype=np.intc)
         ekde.ekdefunc.count_diff_desc(Z, Z_diff_desc)
-        time.sleep(0.5)
-        st = time.time()
         f = np.array(ekde.ekdefunc.merge(U=self._U,
                                            U_diff_asc = self._U_diff_asc,
                                            U_diff_desc = self._U_diff_desc,
@@ -134,14 +114,14 @@ class BKDE():
                                            Z_diff_asc=Z_diff_asc,
                                            Z_diff_desc=Z_diff_desc,
                                            q=self.q,
-                                           h=self._h))
-        print('merge in ', time.time()-st)
+                                           h=self._h,
+                                           kernel=self.kernel,
+                                           dx=self._dx))
         f[id_out_of_bounds] = 0.0
         
-        f = f / (self._h ** self._d * self._n)
+        f = f / self._normalization
         
         f /= self._wt.scale_
-        print(time.time()-st_all)
         return(f)
     
     def _set_boundaries(self, x):
@@ -193,9 +173,13 @@ class BKDE():
         elif type(self.h) is str:
             if self.h == 'scott' or self.h == 'silverman':
                 # the scott rule is based on gaussian kernel
-                # the support of the gaussian kernel to have 99%
-                # of the density is 2.576
-                self._h = 2.576 * scotts_rule(X)
+                
+                self._h = scotts_rule(X)
+                
+                if self.kernel == 'box':
+                    # the support of the gaussian kernel to have 99%
+                    # of the density is 2.576
+                    self._h *= 2.576
             else:
                 raise (ValueError("Unexpected bandwidth selection method."))
         else:
@@ -203,6 +187,19 @@ class BKDE():
 
         if self.verbose > 0:
             print('Bandwidth selection done : h=' + str(self._h))
+    
+    def _compute_support(self):
+        if self.kernel == 'box':
+            self._support = 1.0
+        elif self.kernel == 'gaussian':
+            self._support = 2.576
+    
+    def _compute_normalization(self):
+        if self.kernel == 'box':
+            self._normalization = self._h ** self._d * self._n
+        elif self.kernel == 'gaussian':
+            self._normalization = self._d * gauss_integral(self._d - 1) * volume_unit_ball(self._d, p=2)
+        
             
     def set_params(self, **params):
         """
@@ -221,8 +218,21 @@ class BKDE():
         """
         for param, value in params.items():
             setattr(self, param, value)
-    
-    
+
+def volume_unit_ball(d, p=2):
+    # from KDEpy
+    return 2.0 ** d * gamma(1 + 1 / p) ** d / gamma(1 + d / p)
+
+def gauss_integral(n):
+    # from KDEpy
+    factor = np.sqrt(np.pi * 2)
+    if n % 2 == 0:
+        return factor * factorial2(n - 1) / 2
+    elif n % 2 == 1:
+        return factor * norm.pdf(0) * factorial2(n - 1)
+    else:
+        raise ValueError("n must be odd or even.")
+
 def scotts_rule(X):
     """
     Scott's rule according to "Multivariate density estimation", Scott 2015, p.164.
