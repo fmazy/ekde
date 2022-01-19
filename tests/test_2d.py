@@ -79,7 +79,6 @@ st = time()
 f_grid = bkde.predict(X_grid)
 print(time()-st)
 
-#%%
 plt.scatter(X_grid[:,0], X_grid[:,1], c=f_grid, s=2)
 
 #%%

@@ -32,6 +32,7 @@ class KDE():
                  q=11, 
                  bounds=[],
                  n_jobs = 1,
+                 zero = 0.00000000000001,
                  verbose=0):
         if q%2 == 0:
             raise(ValueError("Unexpected q value. q should be an odd int."))
@@ -42,6 +43,7 @@ class KDE():
         self.q = q
         self.bounds = bounds
         self.n_jobs = n_jobs
+        self.zero = zero
         self.verbose = verbose
     
     def fit(self, X):
@@ -90,7 +92,12 @@ class KDE():
         ekde.ekdefunc.count_diff_desc(self._U, self._U_diff_desc)
         
         C = compute_centers(self._U, self._x_min, self._dx).astype(np.double)
-        self._nu /= np.array(hyperclip.hyperfunc.volumes(A, R, C, self._h))
+        
+        self._nu /= np.array(hyperclip.hyperfunc.volumes(A, 
+                                                         R, 
+                                                         C, 
+                                                         self._h, 
+                                                         zero=self.zero))
         
         self._compute_normalization()
         
@@ -123,7 +130,8 @@ class KDE():
                                           q=self.q,
                                           h=self._h,
                                           kernel_id=kernels_id[self.kernel],
-                                          dx=self._dx))
+                                          dx=self._dx,
+                                          verbose=self.verbose))
         
         # folder = './.temp_joblib_memmap'
         # try:

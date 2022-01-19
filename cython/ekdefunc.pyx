@@ -12,6 +12,7 @@ import cython
 from libc.math cimport exp
 from libc.math cimport pow as cpow
 
+from tqdm import tqdm
 
 import numpy as np
 cimport numpy as np
@@ -266,6 +267,7 @@ cpdef double [:] set_estimation(int[:,:] Z_diff_asc,
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
 @cython.cdivision(True)  # non check division 
+@cython.cdivision(True) # modulo operator (%)
 cpdef double [:] merge(int[:, :] U, 
                        int[:, :] U_diff_asc,
                        int[:, :] U_diff_desc,
@@ -274,7 +276,8 @@ cpdef double [:] merge(int[:, :] U,
                        int q,
                        double h,
                        int kernel_id,
-                       double dx):
+                       double dx,
+                       int verbose=0):
     cdef Py_ssize_t i_U, i_Z, j, k
     
     cdef int n_U = U.shape[0]
@@ -294,7 +297,11 @@ cpdef double [:] merge(int[:, :] U,
     cdef int ***S = sparse(U=U,
                            U_diff_desc=U_diff_desc,
                            U_diff_one_side = U_diff_one_side,
-                           S_shape=S_shape)   
+                           S_shape=S_shape)
+    
+    if verbose > 0:
+        pbar = tqdm(total=n_Z)
+        
     
     f[0] = estimate(S=S, 
                     S_shape=S_shape, 
@@ -309,6 +316,10 @@ cpdef double [:] merge(int[:, :] U,
                     kernel_id=kernel_id)
     
     for i_Z in range(0, n_Z):
+        if verbose > 0:
+            if i_Z % (n_Z / 100) == 0:
+                pbar.update(<int> n_Z / 100)
+                
         f[i_Z] = estimate(S=S, 
                           S_shape=S_shape, 
                           U_diff_asc=U_diff_asc, 
@@ -329,6 +340,8 @@ cpdef double [:] merge(int[:, :] U,
     
     free(S_shape)
     
+    if verbose > 0:
+        pbar.close()
     
     return(f)
 
