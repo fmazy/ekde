@@ -9,6 +9,9 @@ from scipy.special import gamma, factorial2
 from scipy.stats import norm
 import time
 
+kernels_id = {'box' : 0,
+              'gaussian' : 1}
+
 def discretize(X, x_min, dx):
     Z = ((X - x_min) / dx).astype(int)
     return(Z)
@@ -115,7 +118,7 @@ class KDE():
                                            Z_diff_desc=Z_diff_desc,
                                            q=self.q,
                                            h=self._h,
-                                           kernel=self.kernel,
+                                           kernel_id=kernels_id[self.kernel],
                                            dx=self._dx))
         f[id_out_of_bounds] = 0.0
         
@@ -198,7 +201,8 @@ class KDE():
         if self.kernel == 'box':
             self._normalization = self._h ** self._d * self._n
         elif self.kernel == 'gaussian':
-            self._normalization = self._d * gauss_integral(self._d - 1) * volume_unit_ball(self._d, p=2)
+            # self._normalization = self._d * gauss_integral(self._d - 1) * volume_unit_ball(self._d, p=2) * self._n
+            self._normalization = (2 * np.pi)**(self._d/2) * self._h**self._d * self._n
         
             
     def set_params(self, **params):

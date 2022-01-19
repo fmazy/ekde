@@ -9,7 +9,9 @@ from libcpp cimport bool
 from libc.stdlib cimport malloc, free
 import cython
 
-from math import exp
+from libc.math cimport exp
+from libc.math cimport pow as cpow
+
 
 import numpy as np
 cimport numpy as np
@@ -58,7 +60,7 @@ cpdef void count_diff_asc(int[:,:] A,
 cdef int *** sparse(int[:,:] U,
                     int[:,:] U_diff_desc,
                     int[:,:] U_diff_one_side,
-                    int[:] S_shape):
+                    int *S_shape):
     cdef Py_ssize_t i_U, i_S, j, j_asc
     
     cdef int n = U.shape[0]
@@ -120,7 +122,7 @@ cdef int [:,:] count_one_side(int[:,:] U_diff_desc):
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
 cdef bool search_first_U(int ***S, 
-                         int[:] S_shape,
+                         int *S_shape,
                          int[:,:] U_diff_asc,
                          int * s,
                          int d,
@@ -147,15 +149,23 @@ cdef bool search_first_U(int ***S,
                              x = target[j],
                              a = a,
                              b = b)
-    
-    for j in range(d):
-        if S[j][s[j]][0] < target[j]:
+        
+        if s[j] == -1:
             return(next_s(S = S, 
                           S_shape=S_shape,
                           U_diff_asc=U_diff_asc,
                           d = d,
                           s = s,
                           j_max = j-1))
+    
+    # for j in range(d):
+    #     if S[j][s[j]][0] < target[j]:
+    #         return(next_s(S = S, 
+    #                       S_shape=S_shape,
+    #                       U_diff_asc=U_diff_asc,
+    #                       d = d,
+    #                       s = s,
+    #                       j_max = j-1))
     
     return(True)
     
@@ -172,7 +182,7 @@ cdef int binary_search(int **L,
         return(a)
     
     if x > L[b-1][0]:
-        return(b-1)
+        return(-1)
     
     while a < b:
         m = <int> (a + b) / 2
@@ -187,7 +197,7 @@ cdef int binary_search(int **L,
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
 cdef bool next_s(int ***S, 
-                 int [:] S_shape,
+                 int *S_shape,
                  int [:,:] U_diff_asc,
                  int d,
                  int *s,
@@ -215,9 +225,26 @@ cdef bool next_s(int ***S,
     
     return(True)
         
+@cython.boundscheck(False)  # Deactivate bounds checking.
+@cython.wraparound(False)   # Deactivate negative indexing.
+cdef int * get_S_shape(int[:,:] U_diff_desc, 
+                       int n_U,
+                       int d):
+    cdef Py_ssize_t j
+    
+    cdef int *S_shape = <int *> malloc(d * sizeof(int))
+    
+    for j in range(d):
+        S_shape[j] = 0
+        
+        for i_U in range(n_U):
+            if U_diff_desc[i_U, j] == 1:
+                S_shape[j] = S_shape[j] + 1
+    return(S_shape)
 
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
+@cython.cdivision(True)  # non check division 
 cpdef double [:] merge(int[:, :] U, 
                        int[:, :] U_diff_asc,
                        int[:, :] U_diff_desc,
@@ -228,7 +255,7 @@ cpdef double [:] merge(int[:, :] U,
                        int[:, :] Z_diff_desc,
                        int q,
                        double h,
-                       str kernel,
+                       int kernel_id,
                        double dx):
     cdef Py_ssize_t i_U, i_Z, j, k
     
@@ -239,85 +266,45 @@ cpdef double [:] merge(int[:, :] U,
     cdef int margin = (q - 1) / 2
     
     cdef double [:] f = np.zeros(n_Z, dtype=np.double)
-    
-    cdef bool trigger_search_U
-    
-    cdef int [:] S_shape = np.zeros(d, dtype=np.intc)
-    for j in range(d):
-        for i_U in range(n_U):
-            if U_diff_desc[i_U, j] == 1:
-                S_shape[j] = S_shape[j] + 1
+                
+    cdef int *S_shape = get_S_shape(U_diff_desc,
+                                    n_U,
+                                    d)
     
     cdef int [:,:] U_diff_one_side = count_one_side(U_diff_desc=U_diff_desc)
     
     cdef int ***S = sparse(U=U,
                            U_diff_desc=U_diff_desc,
                            U_diff_one_side = U_diff_one_side,
-                           S_shape=S_shape)
+                           S_shape=S_shape)   
     
-    cdef int *target = <int *> malloc(2 * sizeof(int))
+    f[Z_indices[0]] = estimate(S=S, 
+                               S_shape=S_shape, 
+                               U_diff_asc=U_diff_asc, 
+                               nu=nu,
+                               Z=Z, 
+                               i_Z=0, 
+                               margin=margin,
+                               d=d,
+                               h=h,
+                               dx=dx,
+                               kernel_id=kernel_id)
     
-    cdef int *s = <int *> malloc(d * sizeof(int))
-    
-    cdef double dist_sq
-    
-    for i_Z in range(n_Z):
-        for j in range(d):
-            target[j] = Z[i_Z, j] - margin
-        
-        trigger_search_U =  search_first_U(S = S,
-                                           S_shape = S_shape,
-                                           U_diff_asc = U_diff_asc,
-                                           s = s,
-                                           d = d,
-                                           target = target,
-                                           j_start=0)
-        
-        while trigger_search_U:
-            for j in range(d):
-                if S[j][s[j]][0] - margin > Z[i_Z, j]:
-                    # U is too high
-                    # the column before is incremented
-                    trigger_search_U = next_s(S = S, 
-                                              S_shape=S_shape,
-                                              U_diff_asc=U_diff_asc,
-                                              d = d,
-                                              s = s,
-                                              j_max = j-1)
-                    break
-                
-                elif S[j][s[j]][0] + margin < Z[i_Z, j]:
-                    # U is too low
-                    # let's search above
-                    # if nothing is found, the column before is incremented
-                    trigger_search_U = search_first_U(S = S,
-                                                       S_shape = S_shape,
-                                                       U_diff_asc = U_diff_asc,
-                                                       s = s,
-                                                       d = d,
-                                                       target = target,
-                                                       j_start=j)
-                    break
-            else:
-                # U is good for Z !
-                # here it is possible to set another type of kernel
-                if kernel == 'box':
-                    f[Z_indices[i_Z]] = f[Z_indices[i_Z]] + nu[S[d-1][s[d-1]][1]]
-                elif kernel == 'gaussian':
-                    
-                    dist_sq = 0
-                    for j in range(d):
-                        dist_sq = dist_sq + pow(Z[i_Z, j] - S[j][s[j]][0], 2)
-                    dist_sq = dist_sq * pow(dx, 2)
-                    
-                    f[Z_indices[i_Z]] = f[Z_indices[i_Z]] + nu[S[d-1][s[d-1]][1]] * exp(-dist_sq / pow(h,2) / 2)
-                # then, next U
-                trigger_search_U = next_s(S = S, 
-                                          S_shape=S_shape,
-                                          U_diff_asc=U_diff_asc,
-                                          d = d,
-                                          s = s,
-                                          j_max = d-1)
+    for i_Z in range(1, n_Z):
+        if Z_diff_asc[i_Z, d-1] > 1:
+            f[Z_indices[i_Z]] = f[Z_indices[i_Z-1]]
+        else:
+            f[Z_indices[i_Z]] = estimate(S=S, 
+                                         S_shape=S_shape, 
+                                         U_diff_asc=U_diff_asc, 
+                                         nu=nu,
+                                         Z=Z, 
+                                         i_Z=i_Z, 
+                                         margin=margin,
+                                         d=d,
+                                         h=h,
+                                         dx=dx,
+                                         kernel_id=kernel_id)
     
     for j in range(d):
         for i_U in range(S_shape[j]):
@@ -325,8 +312,97 @@ cpdef double [:] merge(int[:, :] U,
         free(S[j])
     free(S)
     
-    free(target)
-    free(s)
+    free(S_shape)
     
     
     return(f)
+
+@cython.boundscheck(False)  # Deactivate bounds checking.
+@cython.wraparound(False)   # Deactivate negative indexing.
+@cython.cdivision(True)  # non check division 
+cdef double estimate(int ***S, 
+              int *S_shape, 
+              int[:,:] U_diff_asc, 
+              double[:] nu,
+              int[:,:] Z, 
+              int i_Z, 
+              int margin,
+              int d,
+              double h,
+              double dx,
+              int kernel_id):
+    cdef Py_ssize_t j
+    cdef double dist_sq, est, contrib
+    
+    cdef bool trigger_search_U
+    cdef int *target = <int *> malloc(d * sizeof(int))
+    cdef int *s = <int *> malloc(d * sizeof(int))
+    
+    est = 0.0
+    
+    for j in range(d):
+        target[j] = Z[i_Z, j] - margin
+    
+    trigger_search_U =  search_first_U(S = S,
+                                       S_shape = S_shape,
+                                       U_diff_asc = U_diff_asc,
+                                       s = s,
+                                       d = d,
+                                       target = target,
+                                       j_start=0)
+    
+    while trigger_search_U:
+        for j in range(d):
+            if S[j][s[j]][0] - margin > Z[i_Z, j]:
+                # U is too high
+                # the column before is incremented
+                trigger_search_U = next_s(S = S, 
+                                          S_shape=S_shape,
+                                          U_diff_asc=U_diff_asc,
+                                          d = d,
+                                          s = s,
+                                          j_max = j-1)
+                break
+            
+            elif S[j][s[j]][0] + margin < Z[i_Z, j]:
+                # U is too low
+                # let's search above
+                # if nothing is found, the column before is incremented
+                trigger_search_U = search_first_U(S = S,
+                                                   S_shape = S_shape,
+                                                   U_diff_asc = U_diff_asc,
+                                                   s = s,
+                                                   d = d,
+                                                   target = target,
+                                                   j_start=j)
+                break
+        else:
+            # U is good for Z !
+            # here it is possible to set another type of kernel
+            contrib = nu[S[d-1][s[d-1]][1]]
+            
+            if kernel_id == 0:
+                pass
+                
+            elif kernel_id == 1:
+                
+                dist_sq = 0
+                for j in range(d):
+                    dist_sq = dist_sq + cpow(Z[i_Z, j] - S[j][s[j]][0], 2.0)
+                dist_sq = dist_sq * cpow(dx, 2.0)
+                
+                contrib = contrib * exp(-dist_sq / cpow(h,2.0) / 2)
+            
+            est = est + contrib
+                            
+            # then, next U
+            trigger_search_U = next_s(S = S, 
+                                      S_shape=S_shape,
+                                      U_diff_asc=U_diff_asc,
+                                      d = d,
+                                      s = s,
+                                      j_max = d-1)
+    
+    free(s)
+    free(target)
+    return(est)

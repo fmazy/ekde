@@ -61,23 +61,34 @@ pdf_grid = np.sum(_pdf(X_grid, X_min)) * np.product(X_grid.max(axis=0)-X_grid.mi
 f_grid_exact = _pdf(X_grid, X_min) / pdf_grid
 #%%
 st = time()
-bkde = ekde.KDE(q=5,
+bkde = ekde.KDE(q=21,
                  kernel='box',
                     bounds=[
-                        # (0, 'left'),
-                        # (1, 'both'),
+                        (0, 'left'),
+                        (1, 'both'),
                         ],
                     verbose=1)
 bkde.fit(X)
 print(time()-st)
 print(bkde._normalization)
-#%%
-X2, Y, pdf_Y, X_grid = bounded_set(10**6, 30)
 
 #%%
-f_X = bkde.predict(X2)
+f_grid = bkde.predict(X_grid)
+plt.scatter(X_grid[:,0], X_grid[:,1], c=f_grid, s=2)
+
+#%%
+X2, Y, pdf_Y, X_grid = bounded_set(10**6, 30)
 idx = np.random.choice(X2.shape[0], 10**4, replace=False)
+#%%
+# bkde.fit(X[:10])
+from time import time
+st = time()
+f_X = bkde.predict(X2)
+print(time()-st)
 plt.scatter(X2[idx,0], X2[idx,1], c=f_X[idx], s=2)
+plt.scatter(X[:10,0], X[:10,1], c='red')
+
+
 
 #%%
 # U = np.array([[1,1,1],
@@ -102,7 +113,7 @@ f_X = bkde.predict(X)
 # ([4, 249], 11.652764262505263)
 
 #%%
-f_eval = bkde.predict(Y[:])
+f_eval = bkde.predict(Y)
 plt.plot(Y[:,1], pdf_Y)
 plt.plot(Y[:,1], f_eval)
 
@@ -112,7 +123,7 @@ print('mad', np.abs(f_X - _pdf(X, X_min) / pdf_grid).mean())
 
 #%%
 idx = np.random.choice(X.shape[0], 10**4, replace=False)
-plt.scatter(X[idx,0], X[idx,1], c=f_X[idx], s=2)
+plt.scatter(X[idx,0], X[idx,1], c=bkde.predict(X[idx]), s=2)
 
 #%%
 import pandas as pd
