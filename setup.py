@@ -14,7 +14,7 @@ import numpy
 from setuptools import setup
 from setuptools import Extension
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 if USE_CYTHON:
     try:
