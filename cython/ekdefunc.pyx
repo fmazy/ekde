@@ -244,15 +244,33 @@ cdef int * get_S_shape(int[:,:] U_diff_desc,
 
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
+cpdef double [:] set_estimation(int[:,:] Z_diff_asc,
+                                int[:] Z_indices,
+                                double[:] g):
+    cdef Py_ssize_t i_Z, i_g
+    cdef int n_Z = Z_diff_asc.shape[0]
+    cdef int d = Z_diff_asc.shape[1]
+    
+    cdef double [:] f = np.zeros(n_Z, dtype=np.double)
+    
+    i_g = 0
+    for i_Z in range(n_Z):
+        if Z_diff_asc[i_Z, d-1] == 1:
+            f[Z_indices[i_Z]] = g[i_g]
+            i_g = i_g + 1
+        else:
+            f[Z_indices[i_Z]] = g[i_g]
+    
+    return(f)
+
+@cython.boundscheck(False)  # Deactivate bounds checking.
+@cython.wraparound(False)   # Deactivate negative indexing.
 @cython.cdivision(True)  # non check division 
 cpdef double [:] merge(int[:, :] U, 
                        int[:, :] U_diff_asc,
                        int[:, :] U_diff_desc,
                        double[:] nu, 
-                       int[:, :] Z, 
-                       int[:] Z_indices, 
-                       int[:, :] Z_diff_asc,
-                       int[:, :] Z_diff_desc,
+                       int[:, :] Z,
                        int q,
                        double h,
                        int kernel_id,
@@ -278,33 +296,30 @@ cpdef double [:] merge(int[:, :] U,
                            U_diff_one_side = U_diff_one_side,
                            S_shape=S_shape)   
     
-    f[Z_indices[0]] = estimate(S=S, 
-                               S_shape=S_shape, 
-                               U_diff_asc=U_diff_asc, 
-                               nu=nu,
-                               Z=Z, 
-                               i_Z=0, 
-                               margin=margin,
-                               d=d,
-                               h=h,
-                               dx=dx,
-                               kernel_id=kernel_id)
+    f[0] = estimate(S=S, 
+                    S_shape=S_shape, 
+                    U_diff_asc=U_diff_asc, 
+                    nu=nu,
+                    Z=Z, 
+                    i_Z=0, 
+                    margin=margin,
+                    d=d,
+                    h=h,
+                    dx=dx,
+                    kernel_id=kernel_id)
     
-    for i_Z in range(1, n_Z):
-        if Z_diff_asc[i_Z, d-1] > 1:
-            f[Z_indices[i_Z]] = f[Z_indices[i_Z-1]]
-        else:
-            f[Z_indices[i_Z]] = estimate(S=S, 
-                                         S_shape=S_shape, 
-                                         U_diff_asc=U_diff_asc, 
-                                         nu=nu,
-                                         Z=Z, 
-                                         i_Z=i_Z, 
-                                         margin=margin,
-                                         d=d,
-                                         h=h,
-                                         dx=dx,
-                                         kernel_id=kernel_id)
+    for i_Z in range(0, n_Z):
+        f[i_Z] = estimate(S=S, 
+                          S_shape=S_shape, 
+                          U_diff_asc=U_diff_asc, 
+                          nu=nu,
+                          Z=Z, 
+                          i_Z=i_Z, 
+                          margin=margin,
+                          d=d,
+                          h=h,
+                          dx=dx,
+                          kernel_id=kernel_id)
     
     for j in range(d):
         for i_U in range(S_shape[j]):

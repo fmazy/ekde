@@ -1,13 +1,18 @@
 import numpy as np
 
 import ekde.ekdefunc
+from ekde.ekdefunc import merge as ekdefunc_merge
 import hyperclip.hyperfunc
 from hyperclip import Hyperplane
 from .whitening_transformer import WhiteningTransformer
 import pandas as pd
 from scipy.special import gamma, factorial2
 from scipy.stats import norm
+from joblib import Parallel, delayed, dump, load
 import time
+import os
+import shutil
+from joblib import wrap_non_picklable_objects
 
 kernels_id = {'box' : 0,
               'gaussian' : 1}
@@ -26,6 +31,7 @@ class KDE():
                  kernel='box',
                  q=11, 
                  bounds=[],
+                 n_jobs = 1,
                  verbose=0):
         if q%2 == 0:
             raise(ValueError("Unexpected q value. q should be an odd int."))
@@ -35,6 +41,7 @@ class KDE():
         self._h = None
         self.q = q
         self.bounds = bounds
+        self.n_jobs = n_jobs
         self.verbose = verbose
     
     def fit(self, X):
@@ -106,26 +113,85 @@ class KDE():
         Z_diff_asc = np.ones((Z.shape[0], self._d), dtype=np.intc)
         ekde.ekdefunc.count_diff_asc(Z, Z_diff_asc)
         
-        Z_diff_desc = np.ones((Z.shape[0], self._d), dtype=np.intc)
-        ekde.ekdefunc.count_diff_desc(Z, Z_diff_desc)
-        f = np.array(ekde.ekdefunc.merge(U=self._U,
-                                           U_diff_asc = self._U_diff_asc,
-                                           U_diff_desc = self._U_diff_desc,
-                                           nu=self._nu,
-                                           Z=Z,
-                                           Z_indices=Z_indices,
-                                           Z_diff_asc=Z_diff_asc,
-                                           Z_diff_desc=Z_diff_desc,
-                                           q=self.q,
-                                           h=self._h,
-                                           kernel_id=kernels_id[self.kernel],
-                                           dx=self._dx))
+        id_Z_unique = np.where(Z_diff_asc[:, self._d-1] == 1)[0]
+        
+        g = np.array(ekde.ekdefunc.merge(U=self._U,
+                                          U_diff_asc = self._U_diff_asc,
+                                          U_diff_desc = self._U_diff_desc,
+                                          nu=self._nu,
+                                          Z=Z[id_Z_unique],
+                                          q=self.q,
+                                          h=self._h,
+                                          kernel_id=kernels_id[self.kernel],
+                                          dx=self._dx))
+        
+        # folder = './.temp_joblib_memmap'
+        # try:
+        #     os.mkdir(folder)
+        # except FileExistsError:
+        #     pass
+        
+        # Z_filename_memmap = os.path.join(folder, 'Z_memmap')
+        # dump(Z, Z_filename_memmap)
+        # Z_memmap = load(Z_filename_memmap, mmap_mode='r')
+        
+        # U_filename_memmap = os.path.join(folder, 'U_memmap')
+        # dump(self._U, U_filename_memmap)
+        # U_memmap = load(U_filename_memmap, mmap_mode='r')
+        
+        # U_diff_asc_filename_memmap = os.path.join(folder, 'U_diff_asc_memmap')
+        # dump(self._U_diff_asc, U_diff_asc_filename_memmap)
+        # U_diff_asc_memmap = load(U_diff_asc_filename_memmap, mmap_mode='r')
+        
+        # U_diff_desc_filename_memmap = os.path.join(folder, 'U_diff_desc_memmap')
+        # dump(self._U_diff_desc, U_diff_desc_filename_memmap)
+        # U_diff_desc_memmap = load(U_diff_desc_filename_memmap, mmap_mode='r')
+        
+        # nu_filename_memmap = os.path.join(folder, 'nu_memmap')
+        # dump(self._nu, nu_filename_memmap)
+        # nu_memmap = load(nu_filename_memmap, mmap_mode='r')
+        
+        # streams = [int(id_Z_unique.size / self.n_jobs) * i for i in range(self.n_jobs + 1)]
+        # streams.append(id_Z_unique.size)
+        
+        
+        # g = Parallel(n_jobs=self.n_jobs,
+        #              backend="threading", verbose=5)(delayed(testfunc)(
+        #     U_memmap,
+        #     U_diff_asc_memmap,
+        #     U_diff_desc_memmap,
+        #     nu_memmap,
+        #     Z_memmap[id_Z_unique[streams[i_stream]: streams[i_stream+1]]],
+        #     self.q,
+        #     self._h,
+        #     kernels_id[self.kernel],
+        #     self._dx) for i_stream in range(self.n_jobs + 1))
+        
+        
+        
+        
+        
+        # try:
+        #     shutil.rmtree(folder)
+        # except:  # noqa
+        #     print('Could not clean-up automatically.')
+        
+        # g = np.hstack([np.array(gi) for gi in g])
+        
+        # return(g)
+    
+        f = np.array(ekde.ekdefunc.set_estimation(Z_diff_asc=Z_diff_asc,
+                                                  Z_indices=Z_indices,
+                                                  g=g))
+        
         f[id_out_of_bounds] = 0.0
         
         f = f / self._normalization
         
         f /= self._wt.scale_
         return(f)
+    
+
     
     def _set_boundaries(self, x):
         self._bounds_hyperplanes = []
@@ -222,6 +288,27 @@ class KDE():
         """
         for param, value in params.items():
             setattr(self, param, value)
+
+@delayed
+@wrap_non_picklable_objects
+def testfunc(U, 
+         U_diff_asc,
+         U_diff_desc,
+         nu,
+         Z,
+         q,
+         h,
+         kernel_id,
+         dx):
+    return(np.array(ekdefunc_merge(U, 
+                          U_diff_asc,
+                          U_diff_desc,
+                          nu,
+                          Z,
+                          q,
+                          h,
+                          kernel_id,
+                          dx)))
 
 def volume_unit_ball(d, p=2):
     # from KDEpy

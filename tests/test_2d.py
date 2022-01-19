@@ -67,13 +67,19 @@ bkde = ekde.KDE(q=21,
                         (0, 'left'),
                         (1, 'both'),
                         ],
+                    n_jobs=2,
                     verbose=1)
 bkde.fit(X)
 print(time()-st)
 print(bkde._normalization)
 
 #%%
+from time import time
+st = time()
 f_grid = bkde.predict(X_grid)
+print(time()-st)
+
+#%%
 plt.scatter(X_grid[:,0], X_grid[:,1], c=f_grid, s=2)
 
 #%%

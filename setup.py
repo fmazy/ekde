@@ -63,6 +63,7 @@ setup(
             'pandas>=1.3.5',
             'hyperclip>=0.2.2',
             'scipy',
+            'joblib',
         ],
 
     long_description=open('README.md').read(),
