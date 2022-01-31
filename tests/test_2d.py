@@ -6,28 +6,6 @@ from matplotlib import pyplot as plt
 import ekde
 from time import time
 
-#%%
-arr = np.array([10, 7, 8, 9, 1, 5], dtype=np.intc)
-ekde.ekdefunc.np_quicksort(arr)
-print(arr)
-
-#%%
-a = np.random.randint(0,10**3, 10**6, dtype=np.intc)
-
-a_np = a.copy()
-a_ekde = a.copy()
-
-st = time()
-idx = np.argsort(a_np, kind='quicksort')
-a_np = a[idx]
-print(time()-st)
-
-st = time()
-ekde.ekdefunc.np_quicksort(a_ekde)
-print(time()-st)
-
-print(np.max(np.abs(a_np - a_ekde)))
-
 #%% Dataset
 
 X_min = np.array([-0.5, 0.3])
@@ -81,19 +59,40 @@ X, Y, pdf_Y, X_grid = bounded_set(10**7, 42)
 print(X.shape[0]/10**6)
 pdf_grid = np.sum(_pdf(X_grid, X_min)) * np.product(X_grid.max(axis=0)-X_grid.min(axis=0)) / X_grid.shape[0]
 f_grid_exact = _pdf(X_grid, X_min) / pdf_grid
+
+#%%
+bkde = ekde.KDE(h = 0.1,
+                q=21,
+                 kernel='box',
+                    bounds=[
+                        # (0, 'left'),
+                        # (1, 'both'),
+                        ],
+                    n_jobs=2,
+                    n_mc_axes = 100,
+                    verbose=0)
+bkde.fit(X=np.array([[0.5,0.5],
+                     [0.5, 0.5]]))
+wt = bkde._wt
+
+X_eval = np.vstack((np.ones(300) * 0.5, (np.linspace(0, 2, 300)))).T
+plt.plot(X_eval[:,1], bkde.predict(X_eval))
+
 #%%
 st = time()
 bkde = ekde.KDE(q=21,
-                 kernel='box',
+                 kernel='gaussian',
                     bounds=[
-                        (0, 'left'),
-                        (1, 'both'),
+                        # (0, 'left'),
+                        # (1, 'both'),
                         ],
                     n_jobs=2,
+                    n_mc_axes = 100,
                     verbose=0)
 bkde.fit(X)
 print(time()-st)
 print(bkde._normalization)
+
 
 
 #%%
@@ -104,6 +103,10 @@ f_grid = bkde.predict(X_grid)
 print(time()-st)
 
 plt.scatter(X_grid[:,0], X_grid[:,1], c=f_grid, s=2)
+plt.colorbar()
+
+#%%
+
 
 #%%
 import pandas as pd

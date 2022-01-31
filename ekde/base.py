@@ -17,9 +17,7 @@ from joblib import wrap_non_picklable_objects
 kernels_id = {'box' : 0,
               'gaussian' : 1}
 
-def discretize(X, x_min, dx):
-    Z = ((X - x_min) / dx).astype(int)
-    return(Z)
+
 
 def compute_centers(Z, x_min, dx):
     C = x_min + Z * dx + 0.5 * dx
@@ -33,6 +31,7 @@ class KDE():
                  bounds=[],
                  n_jobs = 1,
                  zero = 0.00000000000001,
+                 n_mc_axes = 100,
                  verbose=0):
         if q%2 == 0:
             raise(ValueError("Unexpected q value. q should be an odd int."))
@@ -44,6 +43,7 @@ class KDE():
         self.bounds = bounds
         self.n_jobs = n_jobs
         self.zero = zero
+        self.n_mc_axes = n_mc_axes
         self.verbose = verbose
     
     def fit(self, X):
@@ -77,65 +77,36 @@ class KDE():
         self._x_min = X.min(axis=0)
         self._dx = self._h * self._support / self.q
         
-        Z = discretize(X, self._x_min, dx=self._dx).astype(np.intc)
+        Z = self._discretize(X).astype(np.intc)
         Z = pd.DataFrame(Z)
         
         U_nu = Z.groupby(by=Z.columns.tolist()).size().reset_index(name="nu")
         
         self._U = U_nu[Z.columns.tolist()].values.astype(np.intc)
         self._nu = U_nu["nu"].values.astype(np.double)
-                
-        self._U_diff_asc = np.ones((self._U.shape[0], self._d), dtype=np.intc)
-        ekde.ekdefunc.count_diff_asc(self._U, self._U_diff_asc)
         
         self._U_diff_desc = np.ones((self._U.shape[0], self._d), dtype=np.intc)
         ekde.ekdefunc.count_diff_desc(self._U, self._U_diff_desc)
         
         C = compute_centers(self._U, self._x_min, self._dx).astype(np.double)
         
-        self._nu /= np.array(hyperclip.hyperfunc.volumes(A, 
-                                                         R, 
-                                                         C, 
-                                                         self._h, 
-                                                         zero=self.zero))
+        if self.kernel == 'box':
+            self._nu /= np.array(hyperclip.hyperfunc.volumes(A, 
+                                                             R, 
+                                                             C, 
+                                                             self._h, 
+                                                             zero=self.zero))
+        elif self.kernel == 'gaussian':
+            self._nu /= np.array(ekde.ekdefunc.boundary_correction_gaussian_kernel(A = A, 
+                R = R, 
+                C = C, 
+                h = self._h, 
+                n_mc=self.n_mc_axes**self._d,
+                zero=self.zero))
         
         self._compute_normalization()
         
         return(self)
-    
-    def predict2(self, X):
-        X = self._wt.transform(X)
-        
-        id_out_of_bounds = np.zeros(X.shape[0]).astype(np.bool)
-        for hyp in self._bounds_hyperplanes:
-            id_out_of_bounds = np.any((id_out_of_bounds, ~hyp.side(X)), axis=0)
-        Z = discretize(X, self._x_min, dx=self._dx).astype(np.intc)
-        
-        Z = pd.DataFrame(Z)
-        Z['j'] = np.arange(Z.shape[0])
-        Z = Z.sort_values(by=[i for i in range(self._d)])
-        Z_indices = Z['j'].values.astype(np.intc)
-        Z = Z[[i for i in range(self._d)]].values.astype(np.intc)
-        
-        Z_diff_asc = np.ones((Z.shape[0], self._d), dtype=np.intc)
-        ekde.ekdefunc.count_diff_asc(Z, Z_diff_asc)
-        
-        id_Z_unique = np.where(Z_diff_asc[:, self._d-1] == 1)[0]
-        
-        f = np.array(ekde.ekdefunc.merge2(U=self._U,
-                                          nu=self._nu,
-                                          Z=Z[id_Z_unique],
-                                          margin = int((self.q - 1) / 2),
-                                          kernel_id=kernels_id[self.kernel],
-                                          dx=self._dx,
-                                          verbose=self.verbose))
-        
-        # f[id_out_of_bounds] = 0.0
-        
-        f = f / self._normalization
-        
-        f /= self._wt.scale_
-        return(f)
     
     def predict(self, X):
         X = self._wt.transform(X)
@@ -143,7 +114,7 @@ class KDE():
         id_out_of_bounds = np.zeros(X.shape[0]).astype(np.bool)
         for hyp in self._bounds_hyperplanes:
             id_out_of_bounds = np.any((id_out_of_bounds, ~hyp.side(X)), axis=0)
-        Z = discretize(X, self._x_min, dx=self._dx)
+        Z = self._discretize(X)
         # sort Z
         Z = pd.DataFrame(Z)
         Z['j'] = np.arange(Z.shape[0])
@@ -157,7 +128,6 @@ class KDE():
         id_Z_unique = np.where(Z_diff_asc[:, self._d-1] == 1)[0]
         
         g = np.array(ekde.ekdefunc.merge(U=self._U,
-                                          U_diff_asc = self._U_diff_asc,
                                           U_diff_desc = self._U_diff_desc,
                                           nu=self._nu,
                                           Z=Z[id_Z_unique],
@@ -235,7 +205,9 @@ class KDE():
     
         
     
-
+    def _discretize(self, X):
+        Z = ((X - self._x_min) / self._dx).astype(int)
+        return(Z)
     
     def _set_boundaries(self, x):
         self._bounds_hyperplanes = []
@@ -305,7 +277,7 @@ class KDE():
         if self.kernel == 'box':
             self._support = 1.0
         elif self.kernel == 'gaussian':
-            self._support = 2.576
+            self._support = 2 * 3.0
     
     def _compute_normalization(self):
         if self.kernel == 'box':
@@ -332,27 +304,6 @@ class KDE():
         """
         for param, value in params.items():
             setattr(self, param, value)
-
-@delayed
-@wrap_non_picklable_objects
-def testfunc(U, 
-         U_diff_asc,
-         U_diff_desc,
-         nu,
-         Z,
-         q,
-         h,
-         kernel_id,
-         dx):
-    return(np.array(ekdefunc_merge(U, 
-                          U_diff_asc,
-                          U_diff_desc,
-                          nu,
-                          Z,
-                          q,
-                          h,
-                          kernel_id,
-                          dx)))
 
 def volume_unit_ball(d, p=2):
     # from KDEpy
