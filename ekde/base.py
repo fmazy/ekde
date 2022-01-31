@@ -102,7 +102,41 @@ class KDE():
         self._compute_normalization()
         
         return(self)
+    
+    def predict2(self, X):
+        X = self._wt.transform(X)
         
+        id_out_of_bounds = np.zeros(X.shape[0]).astype(np.bool)
+        for hyp in self._bounds_hyperplanes:
+            id_out_of_bounds = np.any((id_out_of_bounds, ~hyp.side(X)), axis=0)
+        Z = discretize(X, self._x_min, dx=self._dx).astype(np.intc)
+        
+        Z = pd.DataFrame(Z)
+        Z['j'] = np.arange(Z.shape[0])
+        Z = Z.sort_values(by=[i for i in range(self._d)])
+        Z_indices = Z['j'].values.astype(np.intc)
+        Z = Z[[i for i in range(self._d)]].values.astype(np.intc)
+        
+        Z_diff_asc = np.ones((Z.shape[0], self._d), dtype=np.intc)
+        ekde.ekdefunc.count_diff_asc(Z, Z_diff_asc)
+        
+        id_Z_unique = np.where(Z_diff_asc[:, self._d-1] == 1)[0]
+        
+        f = np.array(ekde.ekdefunc.merge2(U=self._U,
+                                          nu=self._nu,
+                                          Z=Z[id_Z_unique],
+                                          margin = int((self.q - 1) / 2),
+                                          kernel_id=kernels_id[self.kernel],
+                                          dx=self._dx,
+                                          verbose=self.verbose))
+        
+        # f[id_out_of_bounds] = 0.0
+        
+        f = f / self._normalization
+        
+        f /= self._wt.scale_
+        return(f)
+    
     def predict(self, X):
         X = self._wt.transform(X)
         
@@ -132,6 +166,17 @@ class KDE():
                                           kernel_id=kernels_id[self.kernel],
                                           dx=self._dx,
                                           verbose=self.verbose))
+        
+        f = np.array(ekde.ekdefunc.set_estimation(Z_diff_asc=Z_diff_asc,
+                                                  Z_indices=Z_indices,
+                                                  g=g))
+        
+        f[id_out_of_bounds] = 0.0
+        
+        f = f / self._normalization
+        
+        f /= self._wt.scale_
+        return(f)
         
         # folder = './.temp_joblib_memmap'
         # try:
@@ -188,16 +233,7 @@ class KDE():
         
         # return(g)
     
-        f = np.array(ekde.ekdefunc.set_estimation(Z_diff_asc=Z_diff_asc,
-                                                  Z_indices=Z_indices,
-                                                  g=g))
         
-        f[id_out_of_bounds] = 0.0
-        
-        f = f / self._normalization
-        
-        f /= self._wt.scale_
-        return(f)
     
 
     

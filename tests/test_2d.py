@@ -6,6 +6,28 @@ from matplotlib import pyplot as plt
 import ekde
 from time import time
 
+#%%
+arr = np.array([10, 7, 8, 9, 1, 5], dtype=np.intc)
+ekde.ekdefunc.np_quicksort(arr)
+print(arr)
+
+#%%
+a = np.random.randint(0,10**3, 10**6, dtype=np.intc)
+
+a_np = a.copy()
+a_ekde = a.copy()
+
+st = time()
+idx = np.argsort(a_np, kind='quicksort')
+a_np = a[idx]
+print(time()-st)
+
+st = time()
+ekde.ekdefunc.np_quicksort(a_ekde)
+print(time()-st)
+
+print(np.max(np.abs(a_np - a_ekde)))
+
 #%% Dataset
 
 X_min = np.array([-0.5, 0.3])
@@ -68,18 +90,148 @@ bkde = ekde.KDE(q=21,
                         (1, 'both'),
                         ],
                     n_jobs=2,
-                    verbose=1)
+                    verbose=0)
 bkde.fit(X)
 print(time()-st)
 print(bkde._normalization)
 
+
 #%%
 from time import time
+X_grid[0] = np.array([0.5, 0.5])
 st = time()
 f_grid = bkde.predict(X_grid)
 print(time()-st)
 
 plt.scatter(X_grid[:,0], X_grid[:,1], c=f_grid, s=2)
+
+#%%
+import pandas as pd
+
+Z = bkde._wt.transform(X)
+Z = ekde.base.discretize(X, bkde._x_min, dx=bkde._dx)
+
+sort_idx = np.argsort(Z[:,0])
+sort_idx_inv = np.argsort(sort_idx)
+
+#%%
+
+
+#%%
+
+margin = (bkde.q-1)/2
+
+i_Z = 0
+
+AB = []
+for j in range(2):
+    sort_idx = np.argsort(bkde._U[:,j])
+    u = bkde._U[sort_idx, j].astype(np.intc)
+    a = ekde.ekdefunc.np_binary_search_left(u, Z[i_Z,j] - margin, 0, u.shape[0])
+    b = ekde.ekdefunc.np_binary_search_right(u, Z[i_Z,j] + margin, a, u.shape[0])
+    
+    AB.append(sort_idx[a:b+1])
+    
+AB = np.hstack(AB)
+AB = np.sort(AB)
+
+s = 0
+d = 2
+out = 0
+for i in range(1, AB.size):
+    if AB[i] == AB[i-1]:
+        out += 1
+    else:
+        out = 0
+    if out == d-1:
+        s += bkde._nu[AB[i]]
+        
+#%%
+z = Z[:,0].astype(np.intc)
+
+ekde.ekdefunc.quickSort(arr, 0, z.size-1)
+
+#%%
+
+st = time()
+Z_s_np = np.sort(z)
+print(time()-st)
+
+st = time()
+Z_s_ekde = ekde.ekdefunc.quickSort(z, 0, z.size-1)
+print(time()-st)
+        
+#%%
+Z = np.array([[1,1],
+              [1,3],
+              [1,4],
+              [2,4],
+              [3,3],
+              [1,1],
+              [1,2],
+              [2,2],
+              [4,4]])
+
+AB = []
+for j in range(2):
+    sort_idx = np.argsort(Z[:,j])
+    z = Z[sort_idx, j].astype(np.intc)
+    a = ekde.ekdefunc.np_binary_search_left(z, 2, 0, Z_sbc_0.shape[0])
+    b = ekde.ekdefunc.np_binary_search_right(z, 3, a, Z_sbc_0.shape[0])
+
+#%%
+x = np.array([12,14,11,11,13,15,14]).astype(np.intc)
+sort_idx = np.argsort(x)
+sort_inverse_idx = np.argsort(sort_idx)
+
+y = x[sort_idx]
+
+z = y[sort_inverse_idx]
+
+a = ekde.ekdefunc.np_binary_search_left(y, 12, 0, 7)
+b = ekde.ekdefunc.np_binary_search_right(y, 14, 0, 7)
+
+# s = np.zeros(b-a+1)
+# for i in range(b-a+1):
+#     s[sort_idx[i]] = x[sort_idx[a + i]]
+
+print(x)
+print(sort_idx)
+print(y)
+print(z)
+print(a, b)
+print(np.arange(7)[a:b+1])
+
+#%%
+Z_sbc_1 = Z[sort_idx[1], 1]
+plt.plot(Z_sbc_1)
+
+#%%
+plt.plot(Z[Z_sbc_idx[1], 1])
+
+#%%
+i_Z = 0
+test_inf = np.all(bkde._U >= Z[i_Z] - margin, axis=1)
+test_sup = np.all(Z[i_Z] + margin >= bkde._U, axis=1)
+select = np.all(np.vstack((test_inf, test_sup)), axis=0)
+
+f_0 = np.sum(bkde._nu[select]) 
+# f_0 /= (bkde._normalization * bkde._wt.scale_)
+print(f_0)
+
+#%%
+idx_0 = np.where(np.all((Z[i_Z,0] - margin <= bkde._U[:,0], 
+                         Z[i_Z,0] + margin >= bkde._U[:,0]), axis=0))[0]
+idx_01 = np.where(np.all((Z[i_Z,1] - margin <= bkde._U[idx_0,1], 
+                          Z[i_Z,1] + margin >= bkde._U[idx_0,1]), axis=0))[0]
+
+f_0 = np.sum(bkde._nu[idx_0[idx_01]])
+# f_0 /= (bkde._normalization * bkde._wt.scale_)
+print(f_0)
+
+#%%
+f = bkde.predict(X)
+print(f[0])
 
 #%%
 X2, Y, pdf_Y, X_grid = bounded_set(10**6, 30)
