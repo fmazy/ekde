@@ -123,11 +123,14 @@ cdef int binary_search_left(int **L,
                             int b):
     cdef int m
     
+    if a >= b:
+        return(a)
+    
     if x < L[a][0]:
         return(a)
     
     if x > L[b-1][0]:
-        return(b-1)
+        return(b)
     
     while a < b:
         m = <int> (a + b) / 2
@@ -147,11 +150,14 @@ cdef int binary_search_right(int **L,
                              int b):
     cdef int m
     
+    if b <= a:
+        return(b)
+    
     if x < L[a][0]:
         return(a)
     
     if x > L[b-1][0]:
-        return(b-1)
+        return(b)
     
     while a < b:
         m = <int> (a + b) / 2
@@ -161,7 +167,7 @@ cdef int binary_search_right(int **L,
         else:
             a = m +1
     
-    return(b - 1)
+    return(b)
 
         
 @cython.boundscheck(False)  # Deactivate bounds checking.
@@ -336,18 +342,21 @@ cdef int explore(int ***S,
                             x = z + margin,
                             a = a,
                             b = high_S)
+    # print('low_S', low_S, 'high_S', high_S, 'x_a',  z - margin, 'a', a, 'x_b', z + margin, 'b', b)    
+    # if j == 1 and T[j][i_T][0] == 0:
+    #     print('j', j, 'd', d)
+    #     print('T 0', T[j][i_T][0], 'T 1', T[j][i_T][1])
+    #     print('S j =', [S[j][i_S][0] for i_S in range(low_S, high_S)])
+    #     print('a', a, 'b', b)
     
     cdef int low_S_prime = a
     
-    print(j, d, T[j][i_T][0], T[j][i_T][1])
-    print('a, b', a, b)
-    
     if j < d-1:
-        for i_S in range(a, b+1):
+        for i_S in range(a, b):
             low_S = S[j][i_S][1]
             high_S = get_high(S[j], S_shape, d, j, i_S)
             
-            print('low high', low_S, high_S)
+            # print('low high', low_S, high_S)
             
             for i_T in range(low_T, high_T):
                 if kernel_id == 1:
@@ -371,13 +380,12 @@ cdef int explore(int ***S,
                                 dist_sq = dist_sq)
     else:
         i_Z = T[j][i_T][1]
-                
         if kernel_id == 0:
-            for i_S in range(a, b+1):
+            for i_S in range(a, b):
                 f[i_Z] = f[i_Z] + nu[S[j][i_S][1]]
                 
         elif kernel_id == 1:
-            for i_S in range(a, b+1):
+            for i_S in range(a, b):
                 dist_sq = ( dist_sq + cpow(z - S[j][i_S][0], 2.0) ) * cpow(dx, 2.0)
                 
                 f[i_Z] = f[i_Z] + nu[S[j][i_S][1]] * exp(-dist_sq / cpow(h,2.0) / 2)

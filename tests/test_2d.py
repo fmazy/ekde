@@ -62,8 +62,8 @@ f_grid_exact = _pdf(X_grid, X_min) / pdf_grid
 
 #%%
 bkde = ekde.KDE(h = 0.1,
-                q=21,
-                 kernel='box',
+                q=151,
+                 kernel='gaussian',
                     bounds=[
                         # (0, 'left'),
                         # (1, 'both'),
@@ -71,12 +71,34 @@ bkde = ekde.KDE(h = 0.1,
                     n_jobs=2,
                     n_mc_axes = 100,
                     verbose=0)
-bkde.fit(X=np.array([[0.5,0.5],
-                     [0.5, 0.5]]))
+bkde.fit(X=np.array([[0.75]]))
 wt = bkde._wt
+# bkde._normalization = 1.0
+X_eval = np.linspace(0, 2, 300)[:, None]
+f_eval = bkde.predict(X_eval)
+plt.plot(X_eval[:,0], f_eval)
 
+print('I', f_eval.sum() * 2 / X_eval.shape[0])
+
+#%%
+bkde = ekde.KDE(h = 0.1,
+                q=151,
+                 kernel='gaussian',
+                    bounds=[
+                        # (0, 'left'),
+                        # (1, 'both'),
+                        ],
+                    n_jobs=2,
+                    n_mc_axes = 100,
+                    verbose=0)
+bkde.fit(X=np.array([[0.5,0.75]]))
+wt = bkde._wt
+# bkde._normalization = 1.0
 X_eval = np.vstack((np.ones(300) * 0.5, (np.linspace(0, 2, 300)))).T
 plt.plot(X_eval[:,1], bkde.predict(X_eval))
+
+f_grid = bkde.predict(X_grid)
+print('I', f_grid.sum() * np.product(X_grid.max(axis=0)-X_grid.min(axis=0)) / X_grid.shape[0])
 
 #%%
 st = time()

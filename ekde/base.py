@@ -283,8 +283,8 @@ class KDE():
         if self.kernel == 'box':
             self._normalization = self._h ** self._d * self._n
         elif self.kernel == 'gaussian':
-            # self._normalization = self._d * gauss_integral(self._d - 1) * volume_unit_ball(self._d, p=2) * self._n
-            self._normalization = (2 * np.pi)**(self._d/2) * self._h**self._d * self._n
+            self._normalization = self._d * gauss_integral(self._d - 1) * volume_unit_ball(self._d, p=2) * self._n * self._h ** self._d
+            # self._normalization = (2 * np.pi)**(self._d/2) * self._h**self._d * self._n
         
             
     def set_params(self, **params):
