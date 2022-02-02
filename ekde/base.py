@@ -283,8 +283,9 @@ class KDE():
         if self.kernel == 'box':
             self._normalization = self._h ** self._d * self._n
         elif self.kernel == 'gaussian':
-            self._normalization = self._d * gauss_integral(self._d - 1) * volume_unit_ball(self._d, p=2) * self._n * self._h ** self._d
+            # self._normalization = self._d * gauss_integral(self._d - 1) * volume_unit_ball(self._d, p=2) * self._n * self._h ** self._d
             # self._normalization = (2 * np.pi)**(self._d/2) * self._h**self._d * self._n
+            self._normalization = self._h**self._d * np.sqrt(2 * np.pi)**self._d * self._n
         
             
     def set_params(self, **params):
@@ -337,3 +338,10 @@ def scotts_rule(X):
     n = X.shape[0]
     d = X.shape[1]
     return(n**(-1/(d + 4)))
+
+def generate_grid(*kwargs):
+    xx = np.meshgrid(*kwargs)
+    
+    xx = np.vstack([xi.flat for xi in xx]).T
+    
+    return(xx)

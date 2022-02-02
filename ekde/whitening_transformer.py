@@ -33,21 +33,13 @@ class WhiteningTransformer():
         _, self._s, Vt = np.linalg.svd(X - self._mean, full_matrices=False)
         self._V = Vt.T
         
-        self._s[self._s <= self.zero] = self.zero
-        self._V[self._V <= self.zero] = self.zero
+        # self._s[self._s <= self.zero] = self.zero
+        # self._V[self._V <= self.zero] = self.zero
         
-        if self._num_obs > 1:
-            self._transform_matrix = self._V @ np.diag(1 / self._s) * np.sqrt(self._num_obs - 1)
-            self._inverse_transform_matrix = np.diag(self._s) @ self._V.T / np.sqrt(self._num_obs - 1)
-            self._transform_det = np.abs(np.linalg.det(self._transform_matrix))
-            self._inverse_transform_det = np.abs(np.linalg.det(self._inverse_transform_matrix))
-            
-        else:
-            self._transform_matrix = np.diag(np.ones(X.shape[1]))
-            self._inverse_transform_matrix = np.diag(np.ones(X.shape[1]))
-            
-            self._transform_det = 1.0
-            self._inverse_transform_det = 1.0
+        self._transform_matrix = self._V @ np.diag(1 / self._s) * np.sqrt(self._num_obs - 1)
+        self._inverse_transform_matrix = np.diag(self._s) @ self._V.T / np.sqrt(self._num_obs - 1)
+        self._transform_det = np.abs(np.linalg.det(self._transform_matrix))
+        self._inverse_transform_det = np.abs(np.linalg.det(self._inverse_transform_matrix))
         
         
 

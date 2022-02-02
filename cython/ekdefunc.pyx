@@ -117,6 +117,34 @@ cdef int [:,:] count_one_side(int[:,:] A_diff_desc):
 
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
+cdef int exponential_search_left(int **L,
+                                 int x,
+                                 int a,
+                                 int b):
+    cdef int bound = 1
+    cdef size = b - a
+    
+    while bound < size and L[a + bound][0] < x:
+        bound = bound * 2
+        
+    return(binary_search_left(L=L, x=x, a=a + bound/2, b=min(a + bound + 1, b)))
+
+@cython.boundscheck(False)  # Deactivate bounds checking.
+@cython.wraparound(False)   # Deactivate negative indexing.
+cdef int exponential_search_right(int **L,
+                                  int x,
+                                  int a,
+                                  int b):
+    cdef int bound = 1
+    cdef size = b - a
+    
+    while bound < size and L[a + bound][0] <= x:
+        bound = bound * 2
+    
+    return(binary_search_right(L=L, x=x, a=a + bound/2, b=min(a + bound + 1, b)))
+
+@cython.boundscheck(False)  # Deactivate bounds checking.
+@cython.wraparound(False)   # Deactivate negative indexing.
 cdef int binary_search_left(int **L,
                             int x,
                             int a,
@@ -335,19 +363,21 @@ cdef int explore(int ***S,
     cdef int a, b
     
     a = binary_search_left(L = S[j],
-                           x = z - margin,
-                           a = low_S,
-                           b = high_S)
+                            x = z - margin,
+                            a = low_S,
+                            b = high_S)
     b = binary_search_right(L = S[j],
                             x = z + margin,
                             a = a,
                             b = high_S)
-    # print('low_S', low_S, 'high_S', high_S, 'x_a',  z - margin, 'a', a, 'x_b', z + margin, 'b', b)    
-    # if j == 1 and T[j][i_T][0] == 0:
-    #     print('j', j, 'd', d)
-    #     print('T 0', T[j][i_T][0], 'T 1', T[j][i_T][1])
-    #     print('S j =', [S[j][i_S][0] for i_S in range(low_S, high_S)])
-    #     print('a', a, 'b', b)
+    # a = exponential_search_left(L = S[j],
+    #                             x = z - margin,
+    #                             a = low_S,
+    #                             b = high_S)
+    # b = exponential_search_right(L = S[j],
+    #                              x = z + margin,
+    #                              a = a,
+    #                              b = high_S)
     
     cdef int low_S_prime = a
     
@@ -356,11 +386,11 @@ cdef int explore(int ***S,
             low_S = S[j][i_S][1]
             high_S = get_high(S[j], S_shape, d, j, i_S)
             
-            # print('low high', low_S, high_S)
+            if kernel_id == 1:
+                dist_sq = dist_sq + cpow(z - S[j][i_S][0], 2.0)
             
             for i_T in range(low_T, high_T):
-                if kernel_id == 1:
-                    dist_sq = dist_sq + cpow(z - S[j][i_S][0], 2.0)
+                
                     
                 low_S = explore(S=S,
                                 S_shape=S_shape,
@@ -391,6 +421,7 @@ cdef int explore(int ***S,
                 f[i_Z] = f[i_Z] + nu[S[j][i_S][1]] * exp(-dist_sq / cpow(h,2.0) / 2)
     
     return(low_S_prime)
+
 
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
