@@ -8,16 +8,24 @@ from .whitening_transformer import WhiteningTransformer
 import pandas as pd
 from scipy.special import gamma, factorial2
 from scipy.stats import norm
-from joblib import Parallel, delayed, dump, load
+from joblib import dump, load
 import time
 import os
 import shutil
 from joblib import wrap_non_picklable_objects
+from multiprocessing import Pool
 
 kernels_id = {'box' : 0,
-              'gaussian' : 1}
+              'gaussian' : 1,
+              'epa' : 2}
 
+supports = {'box' : 1.0,
+            'gaussian' : 3.0,
+            'epa' : 1.0}
 
+R = {'box' : 1/2,
+     'gaussian' : 1 / (2 * np.sqrt(np.pi)),
+     'epa' : 3 / 5}
 
 def compute_centers(Z, x_min, dx):
     C = x_min + Z * dx + 0.5 * dx
@@ -25,13 +33,14 @@ def compute_centers(Z, x_min, dx):
 
 class KDE():
     def __init__(self, 
-                 h='scott', 
+                 h='terrel', 
                  kernel='box',
                  q=11, 
                  bounds=[],
                  n_jobs = 1,
                  zero = 0.00000000000001,
                  n_mc_axes = 100,
+                 wt = True,
                  verbose=0):
         if q%2 == 0:
             raise(ValueError("Unexpected q value. q should be an odd int."))
@@ -44,6 +53,7 @@ class KDE():
         self.n_jobs = n_jobs
         self.zero = zero
         self.n_mc_axes = n_mc_axes
+        self.wt = wt
         self.verbose = verbose
     
     def fit(self, X):
@@ -60,8 +70,9 @@ class KDE():
         self._n, self._d = X.shape
         
         # preprocessing
-        self._wt = WhiteningTransformer()
-        X = self._wt.fit_transform(X)
+        if self.wt:
+            self._wt = WhiteningTransformer()
+            X = self._wt.fit_transform(X)
         
         self._x_min = np.min(X, axis=0)
         
@@ -72,10 +83,10 @@ class KDE():
         # BANDWIDTH SELECTION
         self._compute_bandwidth(X)
         
-        self._compute_support()
+        self._support = supports[self.kernel]
         
         self._x_min = X.min(axis=0)
-        self._dx = self._h * self._support / self.q
+        self._dx = self._h * 2 * self._support / self.q
         
         Z = self._discretize(X).astype(np.intc)
         Z = pd.DataFrame(Z)
@@ -109,7 +120,8 @@ class KDE():
         return(self)
     
     def predict(self, X):
-        X = self._wt.transform(X)
+        if self.wt:
+            X = self._wt.transform(X)
         
         id_out_of_bounds = np.zeros(X.shape[0]).astype(np.bool)
         for hyp in self._bounds_hyperplanes:
@@ -127,15 +139,51 @@ class KDE():
         
         id_Z_unique = np.where(Z_diff_asc[:, self._d-1] == 1)[0]
         
-        g = np.array(ekde.ekdefunc.merge(U=self._U,
-                                          U_diff_desc = self._U_diff_desc,
-                                          nu=self._nu,
-                                          Z=Z[id_Z_unique],
-                                          q=self.q,
-                                          h=self._h,
-                                          kernel_id=kernels_id[self.kernel],
-                                          dx=self._dx,
-                                          verbose=self.verbose))
+        streams = [int(id_Z_unique.size / self.n_jobs) * i for i in range(self.n_jobs + 1)]
+        streams.append(id_Z_unique.size)
+        
+        folder = './.temp_joblib_memmap'
+        try:
+            os.mkdir(folder)
+        except FileExistsError:
+            pass
+        
+        Z_filename_memmap = os.path.join(folder, 'Z_memmap')
+        dump(Z, Z_filename_memmap)
+        Z_memmap = load(Z_filename_memmap, mmap_mode='r')
+        
+        U_filename_memmap = os.path.join(folder, 'U_memmap')
+        dump(self._U, U_filename_memmap)
+        U_memmap = load(U_filename_memmap, mmap_mode='r')
+        
+        U_diff_desc_filename_memmap = os.path.join(folder, 'U_diff_desc_memmap')
+        dump(self._U_diff_desc, U_diff_desc_filename_memmap)
+        U_diff_desc_memmap = load(U_diff_desc_filename_memmap, mmap_mode='r')
+        
+        nu_filename_memmap = os.path.join(folder, 'nu_memmap')
+        dump(self._nu, nu_filename_memmap)
+        nu_memmap = load(nu_filename_memmap, mmap_mode='r')
+        
+        pool = Pool(processes=self.n_jobs)
+        g = pool.starmap(ekde.ekdefunc.merge, 
+                          [(U_memmap,
+                            U_diff_desc_memmap,
+                            nu_memmap,
+                            Z_memmap[id_Z_unique[streams[i_stream]: streams[i_stream+1]]],
+                            self.q,
+                            self._h,
+                            kernels_id[self.kernel],
+                            self._dx,
+                            self.verbose) for i_stream in range(self.n_jobs + 1)])
+        
+        pool.close()
+        
+        try:
+            shutil.rmtree(folder)
+        except:  # noqa
+            print('Could not clean-up automatically.')
+        
+        g = np.hstack([gi for gi in g])
         
         f = np.array(ekde.ekdefunc.set_estimation(Z_diff_asc=Z_diff_asc,
                                                   Z_indices=Z_indices,
@@ -145,7 +193,9 @@ class KDE():
         
         f = f / self._normalization
         
-        f /= self._wt.scale_
+        if self.wt:
+            f /= self._wt.scale_
+            
         return(f)
         
         # folder = './.temp_joblib_memmap'
@@ -244,27 +294,37 @@ class KDE():
         P = np.diag(np.ones(self._d))
         
         P[:, k] = value
+        
+        if self.wt:
+            P = self._wt.transform(P)
 
-        P_wt = self._wt.transform(P)
-
-        hyp = Hyperplane().set_by_points(P_wt)
+        hyp = Hyperplane().set_by_points(P)
         hyp.set_positive_side(x)
         self._bounds_hyperplanes.append(hyp)
     
     def _compute_bandwidth(self, X):
-        if type(self.h) is int or type(self.h) is float:
+        if type(self.h) is int or type(self.h) is float or type(self.h) is np.float64:
             self._h = float(self.h)
 
         elif type(self.h) is str:
             if self.h == 'scott' or self.h == 'silverman':
                 # the scott rule is based on gaussian kernel
                 
-                self._h = scotts_rule(X)
+                self._h = scott_bandwidth(n=X.shape[0],
+                                          d=X.shape[1])
                 
                 if self.kernel == 'box':
                     # the support of the gaussian kernel to have 99%
-                    # of the density is 2.576
-                    self._h *= 2.576
+                    # of the density is (2.576/2) = 1.288
+                    self._h *= 1.288
+                elif self.kernel == 'gaussian':
+                    self._h *= 4
+            
+            elif self.h == 'terrel':
+                self._h = terrel_bandwidth(n=X.shape[0], 
+                                           d=X.shape[1], 
+                                           R=R[self.kernel]**self._d)
+            
             else:
                 raise (ValueError("Unexpected bandwidth selection method."))
         else:
@@ -273,19 +333,19 @@ class KDE():
         if self.verbose > 0:
             print('Bandwidth selection done : h=' + str(self._h))
     
-    def _compute_support(self):
-        if self.kernel == 'box':
-            self._support = 1.0
-        elif self.kernel == 'gaussian':
-            self._support = 2 * 3.0
+    
     
     def _compute_normalization(self):
         if self.kernel == 'box':
-            self._normalization = self._h ** self._d * self._n
+            self._normalization = (2 * self._h)** self._d
+            
         elif self.kernel == 'gaussian':
-            # self._normalization = self._d * gauss_integral(self._d - 1) * volume_unit_ball(self._d, p=2) * self._n * self._h ** self._d
-            # self._normalization = (2 * np.pi)**(self._d/2) * self._h**self._d * self._n
-            self._normalization = self._h**self._d * np.sqrt(2 * np.pi)**self._d * self._n
+            self._normalization = (self._h * np.sqrt(2 * np.pi))** self._d
+            
+        elif self.kernel == 'epa':
+            self._normalization = self._h** self._d * volume_unit_ball(self._d)
+        
+        self._normalization = self._n * self._normalization 
         
             
     def set_params(self, **params):
@@ -310,17 +370,7 @@ def volume_unit_ball(d, p=2):
     # from KDEpy
     return 2.0 ** d * gamma(1 + 1 / p) ** d / gamma(1 + d / p)
 
-def gauss_integral(n):
-    # from KDEpy
-    factor = np.sqrt(np.pi * 2)
-    if n % 2 == 0:
-        return factor * factorial2(n - 1) / 2
-    elif n % 2 == 1:
-        return factor * norm.pdf(0) * factorial2(n - 1)
-    else:
-        raise ValueError("n must be odd or even.")
-
-def scotts_rule(X):
+def scott_bandwidth(n, d):
     """
     Scott's rule according to "Multivariate density estimation", Scott 2015, p.164.
     The Silverman's rule is exactly the same in "Density estimation for statistics and data analysis", Silverman 1986, p.87.
@@ -335,9 +385,12 @@ def scotts_rule(X):
         by the data variance.
 
     """
-    n = X.shape[0]
-    d = X.shape[1]
     return(n**(-1/(d + 4)))
+
+def terrel_bandwidth(n, d, R):
+    num = (d + 8) ** ((d+6)/2) * np.pi ** (d / 2) * R
+    den = 16 * n * gamma((d+8)/2) * (d + 2)
+    return (num / den)**(1/(d+4))
 
 def generate_grid(*kwargs):
     xx = np.meshgrid(*kwargs)

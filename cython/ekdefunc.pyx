@@ -239,7 +239,7 @@ cpdef double [:] set_estimation(int[:,:] Z_diff_asc,
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
 @cython.cdivision(True)  # non check division 
-cpdef double [:] merge(int[:, :] U, 
+def merge(int[:, :] U, 
                        int[:, :] U_diff_desc,
                        double[:] nu, 
                        int[:, :] Z,
@@ -333,7 +333,7 @@ cpdef double [:] merge(int[:, :] U,
     free(S_shape)
     free(T_shape)
     
-    return(f)
+    return(np.array(f))
 
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
@@ -386,7 +386,7 @@ cdef int explore(int ***S,
             low_S = S[j][i_S][1]
             high_S = get_high(S[j], S_shape, d, j, i_S)
             
-            if kernel_id == 1:
+            if kernel_id > 0:
                 dist_sq = dist_sq + cpow(z - S[j][i_S][0], 2.0)
             
             for i_T in range(low_T, high_T):
@@ -410,15 +410,26 @@ cdef int explore(int ***S,
                                 dist_sq = dist_sq)
     else:
         i_Z = T[j][i_T][1]
+        
         if kernel_id == 0:
+            # box kernel
             for i_S in range(a, b):
                 f[i_Z] = f[i_Z] + nu[S[j][i_S][1]]
                 
         elif kernel_id == 1:
+            # gaussian kernel
             for i_S in range(a, b):
                 dist_sq = ( dist_sq + cpow(z - S[j][i_S][0], 2.0) ) * cpow(dx, 2.0)
                 
                 f[i_Z] = f[i_Z] + nu[S[j][i_S][1]] * exp(-dist_sq / cpow(h,2.0) / 2)
+        
+        elif kernel_id == 2:
+            for i_S in range(a, b):
+                dist_sq = ( dist_sq + cpow(z - S[j][i_S][0], 2.0) ) * cpow(dx, 2.0)
+                
+                if dist_sq < 1:
+                    f[i_Z] = f[i_Z] + nu[S[j][i_S][1]] * 0.75 * (1 - dist_sq) ** 2
+                    
     
     return(low_S_prime)
 

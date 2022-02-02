@@ -35,8 +35,8 @@ def _rvs(X_min, n,seed=None):
 def bounded_set(n, seed):
     X = _rvs(X_min, n, seed=seed)
     
-    xk = (np.linspace(X[:,0].min()-X[:,0].std(),X[:,0].max()+X[:,0].std(),300),
-          np.linspace(X[:,1].min()-X[:,1].std(),X[:,1].max()+X[:,1].std(),300))
+    xk = (np.linspace(X[:,0].min()-X[:,0].std(),X[:,0].max()+X[:,0].std(),400),
+          np.linspace(X[:,1].min()-X[:,1].std(),X[:,1].max()+X[:,1].std(),400))
     X_grid = np.meshgrid(xk[0], xk[1])
     X_grid = np.vstack((X_grid[0].flat, X_grid[1].flat)).T
     
@@ -62,30 +62,130 @@ f_grid_exact = _pdf(X_grid, X_min) / pdf_grid
 
 #%%
 st = time()
-bkde = ekde.KDE(q=21,
+bkde = ekde.KDE(h='terrel', 
+                q=51,
                  kernel='box',
                     bounds=[
                         (0, 'left'),
                         (1, 'both'),
                         ],
-                    n_jobs=2,
-                    n_mc_axes = 100,
+                    n_jobs=1,
+                    n_mc_axes = 10,
+                    wt = True,
                     verbose=0)
+# bkde.fit(np.array([[1,1]]))
 bkde.fit(X)
 print(time()-st)
-print(bkde._normalization)
+# print(bkde._normalization)
 
-#%%
 from time import time
 st = time()
 f_grid = bkde.predict(X_grid)
-print(time()-st)
+print('predict time', time()-st)
 
+print('I', f_grid.sum() * np.product(X_grid.max(axis=0)-X_grid.min(axis=0)) / X_grid.shape[0])
+
+fig, axs = plt.subplots(1,1)
+axs.set_aspect('equal')
 plt.scatter(X_grid[:,0], X_grid[:,1], c=f_grid, s=2)
 plt.colorbar()
 
-#%%
+print('mad', np.mean(np.abs(f_grid - f_grid_exact)))
 
+#%%
+mad = []
+q_list = np.arange(1, 51,2)
+for q in q_list:
+    print(q)
+    bkde = ekde.KDE(h='terrel', 
+                    q=q,
+                     kernel='box',
+                        bounds=[
+                            (0, 'left'),
+                            (1, 'both'),
+                            ],
+                        n_jobs=2,
+                        n_mc_axes = 10,
+                        wt = True,
+                        verbose=0)
+    
+    bkde.fit(X)
+    f_grid = bkde.predict(X_grid)
+    mad.append(np.mean(np.abs(f_grid - f_grid_exact)))
+
+plt.plot(q_list, mad)
+
+#%%
+d = 2
+n = 10**4
+q = 101
+n_axes = 300
+kernel='box'
+wt = True
+h_select = 'terrel'
+
+np.random.seed(42)
+X = stats.multivariate_normal.rvs(mean=np.zeros(d), cov=np.diag(np.ones(d)), size=n)
+
+if d == 1:
+    X = X[:,None]
+
+np.random.seed(35)
+Y = stats.multivariate_normal.rvs(mean=np.zeros(d), cov=np.diag(np.ones(d)), size=n)
+if d == 1:
+    Y = Y[:,None]
+    
+f_Y = stats.multivariate_normal.pdf(Y, mean=np.zeros(d), cov=np.diag(np.ones(d)))
+
+np.random.seed(None)
+
+kde = ekde.KDE(h = h_select,
+                q=q,
+                kernel=kernel,
+                n_jobs=2,
+                n_mc_axes = 10,
+                wt=wt,
+                verbose=0).fit(X)
+
+h_t = kde._h
+print(h_t)
+
+mse = []
+list_h = np.arange(h_t*0.5, h_t * 2, h_t * 0.1)
+for i, h in enumerate(list_h):
+    print(round(i/list_h.shape[0],2), h)
+    kde = ekde.KDE(h = h,
+                   q=q,
+                   kernel=kernel,
+                   wt=wt,
+                   verbose=0)
+    kde.fit(X)
+    f = kde.predict(Y)
+    
+    mse.append(np.abs(f - f_Y).mean())
+
+plt.plot(list_h, mse)
+plt.vlines(h_t, np.min(mse), np.max(mse))
+
+# pandas -> numpy vérifier temps de calcul
+# multijobs ?
+
+#%%
+X_grid = ekde.base.generate_grid(*[np.linspace(-4, 4, n_axes) for j in range(d)])
+print((stats.multivariate_normal.pdf(X_grid, mean=np.zeros(d), cov=np.diag(np.ones(d)))).sum() * 8**d / X_grid.shape[0])
+print((stats.multivariate_normal.pdf(X_grid, mean=np.zeros(d), cov=np.diag(np.ones(d)))**2).sum() * 8**d / X_grid.shape[0])
+print(1 / (2 * np.sqrt(np.pi))**d)
+
+#%%
+mu = 1 / (2 * np.sqrt(np.pi))**d
+h_terrel = (R / (X.shape[0] * mu))**(1/5)
+print(h_terrel)
+
+#%% box convolution computation
+
+
+#%%
+plt.plot(np.arange(0.04, 0.3, 0.01), mse)
 
 #%%
 
