@@ -226,28 +226,25 @@ cpdef double [:] set_estimation(int[:,:] Z_diff_asc,
     
     cdef double [:] f = np.zeros(n_Z, dtype=np.double)
     
-    i_g = 0
+    i_g = -1
     for i_Z in range(n_Z):
         if Z_diff_asc[i_Z, d-1] == 1:
-            f[Z_indices[i_Z]] = g[i_g]
             i_g = i_g + 1
-        else:
-            f[Z_indices[i_Z]] = g[i_g]
-    
+        f[Z_indices[i_Z]] = g[i_g]
     return(f)
 
 @cython.boundscheck(False)  # Deactivate bounds checking.
 @cython.wraparound(False)   # Deactivate negative indexing.
 @cython.cdivision(True)  # non check division 
 def merge(int[:, :] U, 
-                       int[:, :] U_diff_desc,
-                       double[:] nu, 
-                       int[:, :] Z,
-                       int q,
-                       double h,
-                       int kernel_id,
-                       double dx,
-                       int verbose=0):
+          int[:, :] U_diff_desc,
+          double[:] nu, 
+          int[:, :] Z,
+          int q,
+          double h,
+          int kernel_id,
+          double dx,
+          int verbose=0):
     cdef Py_ssize_t i_U, i_Z, j, k, i_T
     
     cdef int n_U = U.shape[0]

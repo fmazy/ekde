@@ -35,7 +35,7 @@ class KDE():
     def __init__(self, 
                  h='terrel', 
                  kernel='box',
-                 q=11, 
+                 q=51, 
                  bounds=[],
                  n_jobs = 1,
                  zero = 0.00000000000001,
@@ -44,7 +44,7 @@ class KDE():
                  verbose=0):
         if q%2 == 0:
             raise(ValueError("Unexpected q value. q should be an odd int."))
-            
+                
         self.h = h
         self.kernel = kernel
         self._h = None
@@ -69,6 +69,9 @@ class KDE():
         # get data dimensions
         self._n, self._d = X.shape
         
+        # find a point not on boundaries
+        id_x = self._find_point_not_on_boundaries(X)
+        
         # preprocessing
         if self.wt:
             self._wt = WhiteningTransformer()
@@ -77,7 +80,7 @@ class KDE():
         self._x_min = np.min(X, axis=0)
         
         # BOUNDARIES INFORMATIONS
-        A, R = self._set_boundaries(x = X[0])
+        A, R = self._set_boundaries(x = X[id_x])
         self.A = A
         self.R = R
         # BANDWIDTH SELECTION
@@ -127,9 +130,13 @@ class KDE():
         for hyp in self._bounds_hyperplanes:
             id_out_of_bounds = np.any((id_out_of_bounds, ~hyp.side(X)), axis=0)
         Z = self._discretize(X)
-        # sort Z
+        
+        # SORT Z
+        # ======
         Z = pd.DataFrame(Z)
+        # keep the index safe
         Z['j'] = np.arange(Z.shape[0])
+        # sort by i 
         Z = Z.sort_values(by=[i for i in range(self._d)])
         Z_indices = Z['j'].values.astype(np.intc)
         Z = Z[[i for i in range(self._d)]].values.astype(np.intc)
@@ -185,6 +192,7 @@ class KDE():
         
         g = np.hstack([gi for gi in g])
         
+        
         f = np.array(ekde.ekdefunc.set_estimation(Z_diff_asc=Z_diff_asc,
                                                   Z_indices=Z_indices,
                                                   g=g))
@@ -197,89 +205,49 @@ class KDE():
             f /= self._wt.scale_
             
         return(f)
-        
-        # folder = './.temp_joblib_memmap'
-        # try:
-        #     os.mkdir(folder)
-        # except FileExistsError:
-        #     pass
-        
-        # Z_filename_memmap = os.path.join(folder, 'Z_memmap')
-        # dump(Z, Z_filename_memmap)
-        # Z_memmap = load(Z_filename_memmap, mmap_mode='r')
-        
-        # U_filename_memmap = os.path.join(folder, 'U_memmap')
-        # dump(self._U, U_filename_memmap)
-        # U_memmap = load(U_filename_memmap, mmap_mode='r')
-        
-        # U_diff_asc_filename_memmap = os.path.join(folder, 'U_diff_asc_memmap')
-        # dump(self._U_diff_asc, U_diff_asc_filename_memmap)
-        # U_diff_asc_memmap = load(U_diff_asc_filename_memmap, mmap_mode='r')
-        
-        # U_diff_desc_filename_memmap = os.path.join(folder, 'U_diff_desc_memmap')
-        # dump(self._U_diff_desc, U_diff_desc_filename_memmap)
-        # U_diff_desc_memmap = load(U_diff_desc_filename_memmap, mmap_mode='r')
-        
-        # nu_filename_memmap = os.path.join(folder, 'nu_memmap')
-        # dump(self._nu, nu_filename_memmap)
-        # nu_memmap = load(nu_filename_memmap, mmap_mode='r')
-        
-        # streams = [int(id_Z_unique.size / self.n_jobs) * i for i in range(self.n_jobs + 1)]
-        # streams.append(id_Z_unique.size)
-        
-        
-        # g = Parallel(n_jobs=self.n_jobs,
-        #              backend="threading", verbose=5)(delayed(testfunc)(
-        #     U_memmap,
-        #     U_diff_asc_memmap,
-        #     U_diff_desc_memmap,
-        #     nu_memmap,
-        #     Z_memmap[id_Z_unique[streams[i_stream]: streams[i_stream+1]]],
-        #     self.q,
-        #     self._h,
-        #     kernels_id[self.kernel],
-        #     self._dx) for i_stream in range(self.n_jobs + 1))
-        
-        
-        
-        
-        
-        # try:
-        #     shutil.rmtree(folder)
-        # except:  # noqa
-        #     print('Could not clean-up automatically.')
-        
-        # g = np.hstack([np.array(gi) for gi in g])
-        
-        # return(g)
-    
-        
     
     def _discretize(self, X):
         Z = ((X - self._x_min) / self._dx).astype(int)
         return(Z)
     
+    def _find_point_not_on_boundaries(self, X):
+        trigger_point_found = True
+        
+        X_min = np.min(X, axis=0)
+        X_max = np.max(X, axis=0)
+        
+        while trigger_point_found:
+            id_x = np.random.choice(self._n)
+            x = X[id_x]
+            
+            if np.all(X_min < x) and np.all(x < X_max):
+                trigger_point_found = False
+                return(id_x)
+        
+        
+    
     def _set_boundaries(self, x):
         self._bounds_hyperplanes = []
-
-        for k, pos in self.bounds:
-            if pos == 'left':
-                self._add_boundary(k=k,
-                                   value=self._real_X_min[k],
-                                   x=x)
-            elif pos == 'right':
-                self._add_boundary(k=k,
-                                   value=self._real_X_max[k],
-                                   x=x)
-            elif pos == 'both':
-                self._add_boundary(k=k,
-                                   value=self._real_X_min[k],
-                                   x=x)
-                self._add_boundary(k=k,
-                                   value=self._real_X_max[k],
-                                   x=x)
-            else:
-                raise(TypeError('Unexpected bounds parameters'))
+        
+        if type(self.bounds) is list:
+            for k, pos in enumerate(self.bounds):
+                if pos == 'left':
+                    self._add_boundary(k=k,
+                                       value=self._real_X_min[k],
+                                       x=x)
+                elif pos == 'right':
+                    self._add_boundary(k=k,
+                                       value=self._real_X_max[k],
+                                       x=x)
+                elif pos == 'both':
+                    self._add_boundary(k=k,
+                                       value=self._real_X_min[k],
+                                       x=x)
+                    self._add_boundary(k=k,
+                                       value=self._real_X_max[k],
+                                       x=x)
+                # else:
+                    # raise(TypeError('Unexpected bounds parameters'))
         
         A = np.zeros((self._d, len(self._bounds_hyperplanes)))
         R = np.zeros(len(self._bounds_hyperplanes))

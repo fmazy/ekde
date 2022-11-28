@@ -63,12 +63,9 @@ f_grid_exact = _pdf(X_grid, X_min) / pdf_grid
 #%%
 st = time()
 bkde = ekde.KDE(h='terrel', 
-                q=51,
+                q=11,
                  kernel='box',
-                    bounds=[
-                        (0, 'left'),
-                        (1, 'both'),
-                        ],
+                    bounds=['left', 'both'],
                     n_jobs=1,
                     n_mc_axes = 10,
                     wt = True,
@@ -93,6 +90,42 @@ plt.colorbar()
 print('mad', np.mean(np.abs(f_grid - f_grid_exact)))
 
 #%%
+n = X.shape[0]
+Z = X - np.mean(X, axis=0)
+
+U, S, Vt = np.linalg.svd(Z, full_matrices=False)
+
+C = np.cov(Z.T)
+
+L, V2 = np.linalg.eig(C)
+
+#%%
+Sigma = np.diag(S)
+Sigma_inv = np.linalg.inv(Sigma)
+V = Vt.T
+
+print(np.linalg.det(Sigma_inv @ V))
+print(1/ np.linalg.det(Sigma @ Vt))
+
+#%%
+print(1/ bkde._wt.scale_)
+print(1 / np.linalg.det((n-1)**(-1/2) * Sigma @ Vt))
+print(1 / (n-1)**(-d/2) / np.linalg.det(Sigma @ Vt))
+print((n-1)**(d/2) * np.linalg.det(Sigma_inv @ V))
+
+#%%
+import KDEpy
+
+# st = time()
+# y = KDEpy.TreeKDE(kernel='box', bw=bkde._h).fit(X).evaluate(int(np.sqrt(X_grid.shape[0])))
+# print('Tree time', time()-st)
+# print('mad', np.mean(np.abs(y[1] - _pdf(y[0], X_min) / pdf_grid)))
+
+st = time()
+y = KDEpy.FFTKDE(kernel='box', bw=bkde._h).fit(X).evaluate(int(np.sqrt(X_grid.shape[0])))
+print('FFT time', time()-st)
+print('mad', np.mean(np.abs(y[1] - _pdf(y[0], X_min) / pdf_grid)))
+#%%
 mad = []
 q_list = np.arange(1, 51,2)
 for q in q_list:
@@ -113,7 +146,10 @@ for q in q_list:
     f_grid = bkde.predict(X_grid)
     mad.append(np.mean(np.abs(f_grid - f_grid_exact)))
 
+#%%
 plt.plot(q_list, mad)
+plt.xlabel('q')
+plt.ylabel('MAD')
 
 #%%
 d = 2
